@@ -9,6 +9,11 @@ const swaggerUi = require('swagger-ui-express');
 
 const app = express();
 
+// Configuración de proxy para producción (Railway)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Swagger configuration
 const swaggerOptions = {
   definition: {
@@ -57,11 +62,13 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Rate limiting
+// Rate limiting con valores por defecto
 const limiter = rateLimit({
-  windowMs: process.env.RATE_LIMIT_WINDOW * 60 * 1000,
-  max: process.env.RATE_LIMIT_MAX,
-  message: 'Too many requests from this IP'
+  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000,
+  max: process.env.RATE_LIMIT_MAX || 100,
+  message: 'Too many requests from this IP',
+  standardHeaders: true,
+  legacyHeaders: false
 });
 app.use('/api/', limiter);
 
