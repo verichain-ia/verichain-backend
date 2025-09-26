@@ -24,7 +24,7 @@ class RailwayEnvLoader {
     // En producción estos valores serían null
     this.demoFallbacks = this.isDemoMode ? {
       INSTITUTIONAL_KEY: this.obfuscateKey('364b83d0722af52837fc321dbaefd68ccae1396eede1b9a926ae4843a28afeb5'),
-      BLOCKCHAIN_RPC: 'https://paseo-rpc.dwellir.com',
+      BLOCKCHAIN_RPC: 'https://rpc.ibp.network/paseo',
       CONTRACT_ADDRESS: '0x96950629523b239C2B0d6dd029300dDAe19Be2Cc',
       SUPABASE_URL: 'https://cxowygaebcusntrtdawr.supabase.co',
       SUPABASE_ANON_KEY: this.obfuscateKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4b3d5Z2FlYmN1c250cnRkYXdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2NzAzNTYsImV4cCI6MjA3NDI0NjM1Nn0.EcmYVeJspon0sAr4J0MDKqICa08nvLRqiXIJ9M_C-QY'),

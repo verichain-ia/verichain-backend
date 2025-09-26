@@ -307,4 +307,60 @@ router.post('/force-init', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /certificates/blockchain-debug:
+ *   get:
+ *     summary: Debug blockchain service status
+ *     tags: [Certificates]
+ */
+router.get('/blockchain-debug', async (req, res) => {
+  try {
+    const blockchainService = require('../../services/blockchainService');
+    const config = require('../../config');
+    
+    // Intentar crear wallet manualmente
+    const { ethers } = require('ethers');
+    let walletTest = null;
+    let walletError = null;
+    
+    try {
+      const privateKey = config.blockchain.privateKey || process.env.INSTITUTIONAL_KEY;
+      if (privateKey) {
+        walletTest = new ethers.Wallet(privateKey);
+      }
+    } catch (error) {
+      walletError = error.message;
+    }
+    
+    const debugInfo = {
+      service_status: blockchainService.getStatus(),
+      config_check: {
+        has_private_key: !!config.blockchain.privateKey,
+        has_env_key: !!process.env.INSTITUTIONAL_KEY,
+        key_length: config.blockchain.privateKey ? config.blockchain.privateKey.length : 0,
+        rpc_configured: !!config.blockchain.rpc,
+        contract_configured: !!config.blockchain.contractAddress
+      },
+      wallet_test: {
+        success: !!walletTest,
+        address: walletTest ? walletTest.address : null,
+        error: walletError
+      },
+      raw_env_check: {
+        total_env_vars: Object.keys(process.env).length,
+        has_institutional_key: 'INSTITUTIONAL_KEY' in process.env,
+        institutional_key_type: typeof process.env.INSTITUTIONAL_KEY
+      }
+    };
+    
+    res.json(debugInfo);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 module.exports = router;

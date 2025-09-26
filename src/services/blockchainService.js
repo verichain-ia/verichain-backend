@@ -11,7 +11,7 @@ class BlockchainService {
     this.maxRetries = 3;
     
     this.config = {
-      rpc: process.env.BLOCKCHAIN_RPC || 'https://paseo-rpc.dwellir.com',
+      rpc: process.env.BLOCKCHAIN_RPC || 'https://rpc.ibp.network/paseo',
       contractAddress: process.env.CONTRACT_ADDRESS || '0x96950629523b239C2B0d6dd029300dDAe19Be2Cc',
       chainId: 420420422,
       gasLimit: 500000,
