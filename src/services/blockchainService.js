@@ -8,7 +8,12 @@ const CONTRACT_ABI = [
 class BlockchainService {
   constructor() {
     this.provider = new ethers.JsonRpcProvider(process.env.BLOCKCHAIN_RPC);
-    this.wallet = new ethers.Wallet(process.env.INSTITUTIONAL_KEY, this.provider);
+    const privateKey = process.env.INSTITUTIONAL_KEY;
+    if (!privateKey || privateKey === '[ REDACTED ]' || privateKey.length !== 64) {
+    console.error('Invalid private key configuration');
+    throw new Error('Private key not properly configured');
+    }
+    this.wallet = new ethers.Wallet('0x' + privateKey, this.provider);
     this.contract = new ethers.Contract(
       process.env.CONTRACT_ADDRESS,
       CONTRACT_ABI,
