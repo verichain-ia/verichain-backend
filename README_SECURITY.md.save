@@ -1,0 +1,47 @@
+# Security Notice - Latin Hack 2024
+
+## Current Implementation (Hackathon Demo)
+
+Due to deployment platform limitations with environment variable injection during the hackathon, we've implemented a temporary fallback system for the demo environment.
+
+## Production Security Architecture
+
+In a production environment, VeriChain would implement:
+
+### 1. Secret Management
+- AWS Secrets Manager or HashiCorp Vault
+- Kubernetes Secrets for container orchestration
+- Environment-specific encryption keys
+
+### 2. Key Rotation
+- Automated key rotation every 30 days
+- Zero-downtime key updates
+- Audit logging for all key access
+
+### 3. Access Control
+- IAM roles for service-to-service authentication
+- Multi-factor authentication for admin access
+- Principle of least privilege
+
+### 4. Compliance
+- SOC 2 Type II compliance ready
+- GDPR compliant data handling
+- End-to-end encryption for sensitive data
+
+## Demo Mode
+
+The current deployment includes a `HACKATHON_MODE` flag that:
+- Enables fallback configuration for demonstration
+- Logs security mode status
+- Would be completely removed in production
+
+## Audit Trail
+
+All configuration loading is logged for security auditing:
+- Source of each configuration value
+- Timestamp of loading
+- Platform detection
+
+## Contact
+
+For security questions during judging: [your-email]
