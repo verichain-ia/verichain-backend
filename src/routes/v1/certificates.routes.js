@@ -363,4 +363,119 @@ router.get('/blockchain-debug', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /certificates/direct-emit:
+ *   post:
+ *     summary: Direct blockchain emission (bypass service)
+ *     tags: [Certificates]
+ */
+router.post('/direct-emit', async (req, res) => {
+  try {
+    const { ethers } = require('ethers');
+    const { certificateIds } = req.body;
+    
+    console.log('🚀 Direct emission starting...');
+    
+    // Configuración directa
+    const provider = new ethers.StaticJsonRpcProvider(
+      'https://rpc.ibp.network/paseo',
+      { chainId: 420420422, name: 'paseo' }
+    );
+    
+    // Private key con 0x
+    const privateKey = '0x364b83d0722af52837fc321dbaefd68ccae1396eede1b9a926ae4843a28afeb5';
+    const wallet = new ethers.Wallet(privateKey, provider);
+    
+    console.log(`💼 Wallet address: ${wallet.address}`);
+    
+    // Verificar balance
+    const balance = await provider.getBalance(wallet.address);
+    console.log(`💰 Balance: ${ethers.formatEther(balance)} PAS`);
+    
+    // Contract
+    const contractABI = [
+      "function issueCertificate(string memory certificateId, address recipient, string memory ipfsHash, uint256 timestamp) public"
+    ];
+    
+    const contract = new ethers.Contract(
+      '0x96950629523b239C2B0d6dd029300dDAe19Be2Cc',
+      contractABI,
+      wallet
+    );
+    
+    const results = [];
+    const certIds = certificateIds || ["DEMO-2025-72978", "DEMO-2025-64511"];
+    
+    for (const certId of certIds) {
+      try {
+        console.log(`📝 Emitting: ${certId}`);
+        
+        const tx = await contract.issueCertificate(
+          certId,
+          wallet.address,
+          '',
+          Math.floor(Date.now() / 1000),
+          {
+            gasLimit: 500000n,
+            maxFeePerGas: ethers.parseUnits('50', 'gwei'),
+            maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
+          }
+        );
+        
+        console.log(`📤 TX Hash: ${tx.hash}`);
+        const receipt = await tx.wait(1);
+        
+        // Actualizar DB
+        const supabaseService = require('../../services/supabaseService');
+        await supabaseService.client
+          .from('certificates')
+          .update({
+            status: 'confirmed',
+            blockchain_status: 'confirmed',
+            tx_hash: receipt.hash,
+            block_number: receipt.blockNumber.toString(),
+            blockchain_network: 'paseo'
+          })
+          .eq('certificate_id', certId);
+        
+        results.push({
+          certificateId: certId,
+          success: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber.toString(),
+          explorerUrl: `https://paseo.subscan.io/tx/${receipt.hash}`
+        });
+        
+        console.log(`✅ Success: ${certId} - Block: ${receipt.blockNumber}`);
+        
+      } catch (error) {
+        console.error(`❌ Error with ${certId}:`, error.message);
+        results.push({
+          certificateId: certId,
+          success: false,
+          error: error.message
+        });
+      }
+      
+      // Delay entre emisiones
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    
+    res.json({
+      success: true,
+      wallet: wallet.address,
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('Direct emit error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.stack
+    });
+  }
+});
+
 module.exports = router;
