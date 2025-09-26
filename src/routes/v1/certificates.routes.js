@@ -377,21 +377,24 @@ router.post('/direct-emit', async (req, res) => {
     
     console.log('🚀 Direct emission starting...');
     
-    // Configuración directa
-    const provider = new ethers.StaticJsonRpcProvider(
+    // Para ethers v6 - usar JsonRpcProvider con configuración estática
+    const provider = new ethers.JsonRpcProvider(
       'https://rpc.ibp.network/paseo',
-      { chainId: 420420422, name: 'paseo' }
+      undefined,  // network se detecta automáticamente
+      { staticNetwork: true }  // Evita llamadas de detección de red
     );
+    
+    // Establecer la red manualmente para evitar la llamada eth_chainId
+    provider._networkPromise = Promise.resolve({
+      chainId: 420420422n,
+      name: 'paseo'
+    });
     
     // Private key con 0x
     const privateKey = '0x364b83d0722af52837fc321dbaefd68ccae1396eede1b9a926ae4843a28afeb5';
     const wallet = new ethers.Wallet(privateKey, provider);
     
     console.log(`💼 Wallet address: ${wallet.address}`);
-    
-    // Verificar balance
-    const balance = await provider.getBalance(wallet.address);
-    console.log(`💰 Balance: ${ethers.formatEther(balance)} PAS`);
     
     // Contract
     const contractABI = [
@@ -411,16 +414,12 @@ router.post('/direct-emit', async (req, res) => {
       try {
         console.log(`📝 Emitting: ${certId}`);
         
+        // Transacción simple sin gas estimation
         const tx = await contract.issueCertificate(
           certId,
           wallet.address,
           '',
-          Math.floor(Date.now() / 1000),
-          {
-            gasLimit: 500000n,
-            maxFeePerGas: ethers.parseUnits('50', 'gwei'),
-            maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
-          }
+          Math.floor(Date.now() / 1000)
         );
         
         console.log(`📤 TX Hash: ${tx.hash}`);
@@ -447,8 +446,6 @@ router.post('/direct-emit', async (req, res) => {
           explorerUrl: `https://paseo.subscan.io/tx/${receipt.hash}`
         });
         
-        console.log(`✅ Success: ${certId} - Block: ${receipt.blockNumber}`);
-        
       } catch (error) {
         console.error(`❌ Error with ${certId}:`, error.message);
         results.push({
@@ -457,9 +454,6 @@ router.post('/direct-emit', async (req, res) => {
           error: error.message
         });
       }
-      
-      // Delay entre emisiones
-      await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
     res.json({
@@ -472,8 +466,7 @@ router.post('/direct-emit', async (req, res) => {
     console.error('Direct emit error:', error);
     res.status(500).json({
       success: false,
-      error: error.message,
-      details: error.stack
+      error: error.message
     });
   }
 });
