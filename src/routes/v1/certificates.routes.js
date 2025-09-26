@@ -120,26 +120,100 @@ router.post('/batch-emit', async (req, res) => {
     const { certificateIds, mode, organizationId } = req.body;
     const supabaseService = require('../../services/supabaseService');
     
-    const results = [];
-    for (const certId of certificateIds) {
-      await supabaseService.supabase
-        .from('certificates')
-        .update({
-          blockchain_status: mode === 'demo' ? 'demo' : 'confirmed',
-          tx_hash: mode === 'demo' ? null : '0x' + Math.random().toString(16).substr(2, 64)
-        })
-        .eq('id', certId);
+    // Si es modo demo, solo actualizar estado
+    if (mode === 'demo') {
+      for (const certId of certificateIds) {
+        await supabaseService.supabase
+          .from('certificates')
+          .update({
+            blockchain_status: 'demo',
+            tx_hash: 'DEMO-' + Date.now()
+          })
+          .eq('id', certId);
+      }
       
-      results.push({ id: certId, status: 'success' });
+      return res.json({
+        success: true,
+        total: certificateIds.length,
+        confirmed: certificateIds.length,
+        mode: 'demo'
+      });
+    }
+    
+    // MODO PRODUCTION - Emisión blockchain real
+    const blockchainService = require('../../services/blockchainService');
+    const results = [];
+    
+    // Obtener datos de los certificados
+    const { data: certificates } = await supabaseService.supabase
+      .from('certificates')
+      .select('*')
+      .in('id', certificateIds);
+    
+    // Emitir en lotes de 5
+    const batchSize = 5;
+    for (let i = 0; i < certificates.length; i += batchSize) {
+      const batch = certificates.slice(i, i + batchSize);
+      
+      for (const cert of batch) {
+        try {
+          const blockchainResult = await blockchainService.issueCertificate(
+            cert.id,
+            cert.student_name,
+            cert.course_name,
+            'Universidad Demo'
+          );
+          
+          if (blockchainResult.success) {
+            // Actualizar en DB con TX real
+            await supabaseService.supabase
+              .from('certificates')
+              .update({
+                blockchain_status: 'confirmed',
+                tx_hash: blockchainResult.txHash,
+                block_number: blockchainResult.blockNumber
+              })
+              .eq('id', cert.id);
+            
+            results.push({ 
+              id: cert.id, 
+              status: 'success',
+              txHash: blockchainResult.txHash 
+            });
+          } else {
+            results.push({ 
+              id: cert.id, 
+              status: 'failed',
+              error: blockchainResult.error 
+            });
+          }
+        } catch (error) {
+          console.error(`Error emitting ${cert.id}:`, error);
+          results.push({ 
+            id: cert.id, 
+            status: 'error',
+            error: error.message 
+          });
+        }
+      }
+      
+      // Delay entre lotes
+      if (i + batchSize < certificates.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
     
     res.json({
       success: true,
       total: certificateIds.length,
-      confirmed: results.length,
-      mode: mode
+      confirmed: results.filter(r => r.status === 'success').length,
+      failed: results.filter(r => r.status !== 'success').length,
+      mode: 'production',
+      results: results
     });
+    
   } catch (error) {
+    console.error('Batch emit error:', error);
     res.status(500).json({
       success: false,
       error: error.message
