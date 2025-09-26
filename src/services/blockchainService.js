@@ -26,7 +26,8 @@ class BlockchainService {
     // Intentar obtener la configuración de múltiples fuentes
     const rpcUrl = process.env.BLOCKCHAIN_RPC || process.env.RPC_URL;
     const contractAddress = process.env.CONTRACT_ADDRESS;
-    const privateKey = process.env.INSTITUTIONAL_KEY || process.env.PRIVATE_KEY;
+    const config = require('../config');
+    const privateKey = config.blockchain.privateKey;
     
     // Validar RPC
     if (!rpcUrl) {
