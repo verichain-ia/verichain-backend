@@ -120,16 +120,20 @@ router.post('/batch-emit', async (req, res) => {
     const { certificateIds, mode, organizationId } = req.body;
     const supabaseService = require('../../services/supabaseService');
     
+    console.log(`📦 Batch emit request: ${certificateIds.length} certificates in ${mode} mode`);
+    
     // Si es modo demo, solo actualizar estado
     if (mode === 'demo') {
       for (const certId of certificateIds) {
-        await supabaseService.supabase
+        await supabaseService.client
           .from('certificates')
           .update({
+            status: 'confirmed',
             blockchain_status: 'demo',
-            tx_hash: 'DEMO-' + Date.now()
+            tx_hash: 'DEMO-' + Date.now(),
+            updated_at: new Date().toISOString()
           })
-          .eq('id', certId);
+          .eq('certificate_id', certId);
       }
       
       return res.json({
@@ -142,78 +146,160 @@ router.post('/batch-emit', async (req, res) => {
     
     // MODO PRODUCTION - Emisión blockchain real
     const blockchainService = require('../../services/blockchainService');
-    const results = [];
     
-    // Obtener datos de los certificados
-    const { data: certificates } = await supabaseService.supabase
-      .from('certificates')
-      .select('*')
-      .in('id', certificateIds);
-    
-    // Emitir en lotes de 5
-    const batchSize = 5;
-    for (let i = 0; i < certificates.length; i += batchSize) {
-      const batch = certificates.slice(i, i + batchSize);
+    // Verificar si el servicio está inicializado
+    if (!blockchainService.initialized) {
+      console.log('⚠️ Blockchain service not initialized, attempting to initialize...');
+      await blockchainService.initialize();
       
-      for (const cert of batch) {
-        try {
-          const blockchainResult = await blockchainService.issueCertificate(
-            cert.id,
-            cert.student_name,
-            cert.course_name,
-            'Universidad Demo'
-          );
-          
-          if (blockchainResult.success) {
-            // Actualizar en DB con TX real
-            await supabaseService.supabase
-              .from('certificates')
-              .update({
-                blockchain_status: 'confirmed',
-                tx_hash: blockchainResult.txHash,
-                block_number: blockchainResult.blockNumber
-              })
-              .eq('id', cert.id);
-            
-            results.push({ 
-              id: cert.id, 
-              status: 'success',
-              txHash: blockchainResult.txHash 
-            });
-          } else {
-            results.push({ 
-              id: cert.id, 
-              status: 'failed',
-              error: blockchainResult.error 
-            });
-          }
-        } catch (error) {
-          console.error(`Error emitting ${cert.id}:`, error);
-          results.push({ 
-            id: cert.id, 
-            status: 'error',
-            error: error.message 
-          });
-        }
-      }
-      
-      // Delay entre lotes
-      if (i + batchSize < certificates.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Si aún no está inicializado después del intento
+      if (!blockchainService.initialized) {
+        return res.status(503).json({
+          success: false,
+          error: 'Blockchain service unavailable. Please try again later.',
+          mode: 'production'
+        });
       }
     }
     
-    res.json({
+    const results = [];
+    const failed = [];
+    
+    // Obtener datos de los certificados
+    const { data: certificates, error } = await supabaseService.client
+      .from('certificates')
+      .select('*')
+      .in('certificate_id', certificateIds);
+    
+    if (error) {
+      console.error('Error fetching certificates:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch certificates from database'
+      });
+    }
+    
+    if (!certificates || certificates.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No certificates found with provided IDs'
+      });
+    }
+    
+    console.log(`📋 Found ${certificates.length} certificates to emit`);
+    
+    // Emitir cada certificado
+    for (const cert of certificates) {
+      try {
+        console.log(`🔄 Emitting certificate: ${cert.certificate_id}`);
+        
+        // Preparar datos para blockchain
+        const certificateData = {
+          certificateId: cert.certificate_id,
+          recipientAddress: cert.recipient_address || '0x0000000000000000000000000000000000000000',
+          ipfsHash: cert.ipfs_hash || '',
+          timestamp: Math.floor(new Date(cert.issue_date).getTime() / 1000)
+        };
+        
+        // Emitir en blockchain
+        const blockchainResult = await blockchainService.issueCertificate(certificateData);
+        
+        if (blockchainResult && blockchainResult.success) {
+          // Actualizar en DB con TX real
+          await supabaseService.client
+            .from('certificates')
+            .update({
+              status: 'confirmed',
+              blockchain_status: 'confirmed',
+              tx_hash: blockchainResult.transactionHash,
+              block_number: blockchainResult.blockNumber,
+              blockchain_network: 'paseo',
+              updated_at: new Date().toISOString()
+            })
+            .eq('certificate_id', cert.certificate_id);
+          
+          results.push({
+            id: cert.certificate_id,
+            status: 'success',
+            txHash: blockchainResult.transactionHash,
+            explorerUrl: blockchainResult.explorerUrl
+          });
+          
+          console.log(`✅ Certificate ${cert.certificate_id} emitted successfully`);
+          console.log(`   TX: ${blockchainResult.transactionHash}`);
+        } else {
+          throw new Error(blockchainResult?.error || 'Unknown blockchain error');
+        }
+        
+        // Delay entre emisiones para evitar problemas de nonce
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error(`❌ Error emitting ${cert.certificate_id}:`, error.message);
+        
+        // Actualizar estado de error en DB
+        await supabaseService.client
+          .from('certificates')
+          .update({
+            blockchain_status: 'failed',
+            blockchain_error: error.message,
+            updated_at: new Date().toISOString()
+          })
+          .eq('certificate_id', cert.certificate_id);
+        
+        failed.push({
+          id: cert.certificate_id,
+          status: 'error',
+          error: error.message
+        });
+      }
+    }
+    
+    // Respuesta final
+    const response = {
       success: true,
       total: certificateIds.length,
-      confirmed: results.filter(r => r.status === 'success').length,
-      failed: results.filter(r => r.status !== 'success').length,
+      confirmed: results.length,
+      failed: failed.length,
       mode: 'production',
-      results: results
-    });
+      results: results.concat(failed)
+    };
+    
+    console.log(`📊 Batch emit completed: ${results.length}/${certificateIds.length} successful`);
+    
+    res.json(response);
     
   } catch (error) {
-    console.error('Batch emit error:', error);
+    console.error('❌ Batch emit error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      mode: req.body.mode || 'unknown'
+    });
+  }
+});
+/**
+ * @swagger
+ * /certificates/force-init:
+ *   post:
+ *     summary: Force blockchain service initialization
+ *     tags: [Certificates]
+ */
+router.post('/force-init', async (req, res) => {
+  try {
+    const blockchainService = require('../../services/blockchainService');
+    
+    console.log('🔄 Forcing blockchain service initialization...');
+    await blockchainService.initialize();
+    
+    const status = blockchainService.getStatus();
+    
+    res.json({
+      success: status.initialized,
+      status: status
+    });
+  } catch (error) {
+    console.error('Force init error:', error);
     res.status(500).json({
       success: false,
       error: error.message
